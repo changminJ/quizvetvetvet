@@ -56,40 +56,86 @@ function setsEqual(a, b) {
 }
 
 // ─────── Utility: split question body into prompt + choices ───────
+const CIRCLED_ALL = "①②③④⑤⑥⑦⑧⑨⑩";
+const LETTERS_AZ = "abcdefghij";
+function circleToLetter(ch) {
+  const i = CIRCLED_ALL.indexOf(ch);
+  return i >= 0 ? LETTERS_AZ[i] : ch;
+}
+
 function splitBody(body) {
   const lines = body.split("\n");
 
-  // 첫 번째 원문자 선지 라인 찾기
-  let firstChoiceIdx = -1;
+  const circleLineIdx = [];
   for (let i = 0; i < lines.length; i++) {
-    const ln = lines[i].trim();
-    if (/^[①②③④⑤⑥⑦⑧⑨⑩]/.test(ln)) {
-      firstChoiceIdx = i;
-      break;
+    if (/^[①②③④⑤⑥⑦⑧⑨⑩]/.test(lines[i].trim())) circleLineIdx.push(i);
+  }
+  if (circleLineIdx.length === 0) return { prompt: body, choices: [] };
+
+  // 마지막 원문자 라인이 combinator인지 판정 (한 줄에 원문자 6개 이상)
+  const lastIdx = circleLineIdx[circleLineIdx.length - 1];
+  const lastLine = lines[lastIdx].trim();
+  const lastCircleCount = (lastLine.match(/[①②③④⑤⑥⑦⑧⑨⑩]/g) || []).length;
+  const isCombinator = circleLineIdx.length > 5 && lastCircleCount >= 6;
+
+  if (isCombinator) {
+    // statement + combinator 모드 — 본문 ①~⑩ → a~j로 변환
+    const firstIdx = circleLineIdx[0];
+    const promptLines = lines.slice(0, firstIdx);
+    const stmtOutLines = [];
+    for (let i = firstIdx; i < lastIdx; i++) {
+      const ln = lines[i];
+      const m = ln.match(/^(\s*)([①②③④⑤⑥⑦⑧⑨⑩])(.*)$/);
+      if (m) {
+        stmtOutLines.push(m[1] + circleToLetter(m[2]) + "." + m[3]);
+      } else if (ln.trim()) {
+        stmtOutLines.push(ln);
+      }
+    }
+    const prompt = [...promptLines, "", ...stmtOutLines].join("\n").trim();
+
+    // combinator 라인에서 5개 선지 추출 (각 선지 내부 ①~⑩은 a~j로)
+    const re = /(?:^|\s)([①②③④⑤⑥⑦⑧⑨⑩])[.)\s]*/g;
+    const positions = [];
+    let match;
+    while ((match = re.exec(lastLine)) !== null) {
+      // 첫 문자가 실제 선지 라벨인지 확인: 직전이 공백/시작 AND 직후가 공백/마침표
+      const labelPos = match.index + match[0].indexOf(match[1]);
+      const afterPos = labelPos + 1;
+      const afterCh = lastLine[afterPos] || " ";
+      if (/[\s.)]/.test(afterCh)) {
+        positions.push({ labelPos, label: match[1], contentStart: afterPos });
+      }
+    }
+    if (positions.length >= 2) {
+      const choices = [];
+      for (let k = 0; k < positions.length; k++) {
+        const p = positions[k];
+        const end = (k + 1 < positions.length) ? positions[k + 1].labelPos : lastLine.length;
+        let content = lastLine.slice(p.contentStart, end).replace(/^[.)\s]+/, "").trim();
+        content = content.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, circleToLetter);
+        choices.push(p.label + " " + content);
+      }
+      return { prompt, choices };
     }
   }
-  if (firstChoiceIdx < 0) {
-    return { prompt: body, choices: [] };
-  }
+
+  // 일반 모드
+  const firstChoiceIdx = circleLineIdx[0];
   const prompt = lines.slice(0, firstChoiceIdx).join("\n").trim();
   const choiceLines = lines.slice(firstChoiceIdx);
-
-  // 선지 수집: 라인별 처리 + 같은 라인에 여러 ①~⑤ 있으면 재분할
   const choices = [];
   let cur = null;
   for (const raw of choiceLines) {
     const ln = raw.replace(/^\s+/, "");
     if (!ln) continue;
-    // 같은 라인에 여러 원문자가 있는 경우 — 원문자 경계로 split
     const matches = [...ln.matchAll(/[①②③④⑤⑥⑦⑧⑨⑩]/g)];
     if (matches.length >= 2) {
-      // 이전 cur 먼저 push
       if (cur !== null) { choices.push(cur); cur = null; }
-      // 각 ① 위치 기준으로 segment 분할
       for (let k = 0; k < matches.length; k++) {
-        const startIdx = matches[k].index;
-        const endIdx = (k + 1 < matches.length) ? matches[k + 1].index : ln.length;
-        const seg = ln.slice(startIdx, endIdx).trim();
+        const s = matches[k].index;
+        const e = (k + 1 < matches.length) ? matches[k + 1].index : ln.length;
+        const seg = ln.slice(s, e).trim();
         if (seg) choices.push(seg);
       }
     } else if (/^[①②③④⑤⑥⑦⑧⑨⑩]/.test(ln)) {
