@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <title>수의독성학 족보 퀴즈 (L01~L18)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -345,7 +348,7 @@ function Header({ lectureKeys, data, activeL, onChangeL }) {
   const lKeys = lectureKeys.filter((k) => !k.startsWith("Y"));
   return (
     <header className="mb-4">
-      <h1 className="text-2xl font-bold mb-1">수의독성학 족보 퀴즈</h1>
+      <h1 className="text-2xl font-bold mb-1">수의독성학 족보 퀴즈 <span className="text-xs text-slate-400 font-normal">build 2026-04-24-v3</span></h1>
       <p className="text-xs text-slate-500 mb-3">
         L별 찐족보분석 수록 문항 전수 · 족보 원문 보존 · Claude 독립 재판정 채점
       </p>
