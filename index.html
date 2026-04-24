@@ -85,9 +85,9 @@ function splitBody(body) {
     const stmtOutLines = [];
     for (let i = firstIdx; i < lastIdx; i++) {
       const ln = lines[i];
-      const m = ln.match(/^(\s*)([①②③④⑤⑥⑦⑧⑨⑩])(.*)$/);
+      const m = ln.match(/^(\s*)([①②③④⑤⑥⑦⑧⑨⑩])[.)]?\s*(.*)$/);
       if (m) {
-        stmtOutLines.push(m[1] + circleToLetter(m[2]) + "." + m[3]);
+        stmtOutLines.push(m[1] + circleToLetter(m[2]) + ". " + m[3]);
       } else if (ln.trim()) {
         stmtOutLines.push(ln);
       }
