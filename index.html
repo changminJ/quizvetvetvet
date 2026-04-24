@@ -58,13 +58,12 @@ function setsEqual(a, b) {
 // ─────── Utility: split question body into prompt + choices ───────
 function splitBody(body) {
   const lines = body.split("\n");
-  const choiceStart = /^\s*(?:[①②③④⑤⑥⑦⑧⑨⑩]|[①②③④⑤⑥⑦⑧⑨⑩]\.|[1-5]\.|[1-5]\))\s*/;
 
-  // find first line that looks like a choice (①~⑤ 또는 1.~5.)
+  // 첫 번째 원문자 선지 라인 찾기
   let firstChoiceIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i].trim();
-    if (/^[①②③④⑤⑥⑦⑧⑨⑩]/.test(ln) || /^[①②③④⑤⑥⑦⑧⑨⑩]\./.test(ln)) {
+    if (/^[①②③④⑤⑥⑦⑧⑨⑩]/.test(ln)) {
       firstChoiceIdx = i;
       break;
     }
@@ -74,15 +73,29 @@ function splitBody(body) {
   }
   const prompt = lines.slice(0, firstChoiceIdx).join("\n").trim();
   const choiceLines = lines.slice(firstChoiceIdx);
-  // group each ① line as one choice; subsequent non-choice lines (e.g. "   이어진 설명") merge until next ① or blank
+
+  // 선지 수집: 라인별 처리 + 같은 라인에 여러 ①~⑤ 있으면 재분할
   const choices = [];
   let cur = null;
   for (const raw of choiceLines) {
     const ln = raw.replace(/^\s+/, "");
-    if (/^[①②③④⑤⑥⑦⑧⑨⑩]/.test(ln)) {
+    if (!ln) continue;
+    // 같은 라인에 여러 원문자가 있는 경우 — 원문자 경계로 split
+    const matches = [...ln.matchAll(/[①②③④⑤⑥⑦⑧⑨⑩]/g)];
+    if (matches.length >= 2) {
+      // 이전 cur 먼저 push
+      if (cur !== null) { choices.push(cur); cur = null; }
+      // 각 ① 위치 기준으로 segment 분할
+      for (let k = 0; k < matches.length; k++) {
+        const startIdx = matches[k].index;
+        const endIdx = (k + 1 < matches.length) ? matches[k + 1].index : ln.length;
+        const seg = ln.slice(startIdx, endIdx).trim();
+        if (seg) choices.push(seg);
+      }
+    } else if (/^[①②③④⑤⑥⑦⑧⑨⑩]/.test(ln)) {
       if (cur !== null) choices.push(cur);
       cur = ln;
-    } else if (cur !== null && ln.trim() !== "") {
+    } else if (cur !== null) {
       cur += " " + ln.trim();
     }
   }
