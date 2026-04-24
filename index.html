@@ -172,6 +172,8 @@ function App({ data }) {
   const [selections, setSelections] = useState({});  // { "L01-history:2025-중간-3": Set<idx> }
   const [submitted, setSubmitted] = useState(false);
   const [wrongOnly, setWrongOnly] = useState(false);
+  const [uncertainOnly, setUncertainOnly] = useState(false);
+  const [uncertainSet, setUncertainSet] = useState(new Set());  // keys of uncertain-flagged Qs
 
   const current = data[activeL];
   const allQuestions = current.questions;
@@ -210,13 +212,23 @@ function App({ data }) {
   }, [results, submitted]);
 
   function handleChoiceClick(q, idx) {
-    if (submitted) return;
     const key = qKey(activeL, q);
+    if (submitted || uncertainSet.has(key)) return;
     setSelections((prev) => {
       const cur = new Set(prev[key] || []);
       if (cur.has(idx)) cur.delete(idx);
       else cur.add(idx);
       return { ...prev, [key]: cur };
+    });
+  }
+
+  function handleUncertain(q) {
+    const key = qKey(activeL, q);
+    setUncertainSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
   }
 
@@ -233,24 +245,34 @@ function App({ data }) {
     setSelections({});
     setSubmitted(false);
     setWrongOnly(false);
+    setUncertainOnly(false);
+    setUncertainSet(new Set());
     window.scrollTo({ top: 0 });
   }
 
   function changeLecture(newL) {
-    if (submitted || Object.keys(selections).length > 0) {
+    if (submitted || Object.keys(selections).length > 0 || uncertainSet.size > 0) {
       if (!confirm(`다른 L로 이동하면 현재 선택·결과가 초기화됩니다. 진행할까요?`)) return;
     }
     setSelections({});
     setSubmitted(false);
     setWrongOnly(false);
+    setUncertainOnly(false);
+    setUncertainSet(new Set());
     setActiveL(newL);
     window.scrollTo({ top: 0 });
   }
 
   const visibleQuestions = useMemo(() => {
-    if (!submitted || !wrongOnly) return questions;
-    return questions.filter((q) => !results[qKey(activeL, q)].isCorrect);
-  }, [submitted, wrongOnly, questions, results, activeL]);
+    let list = questions;
+    if (uncertainOnly) {
+      list = list.filter((q) => uncertainSet.has(qKey(activeL, q)));
+    }
+    if (submitted && wrongOnly) {
+      list = list.filter((q) => !results[qKey(activeL, q)].isCorrect);
+    }
+    return list;
+  }, [submitted, wrongOnly, uncertainOnly, uncertainSet, questions, results, activeL]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
@@ -266,8 +288,18 @@ function App({ data }) {
         submitted={submitted}
         totalCorrect={totalCorrect}
       />
-      {submitted && (
-        <div className="my-4 flex items-center gap-3">
+      <div className="my-4 flex flex-wrap items-center gap-3">
+        {uncertainSet.size > 0 && (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={uncertainOnly}
+              onChange={(e) => setUncertainOnly(e.target.checked)}
+            />
+            🤔 확신 없는 문제만 ({uncertainSet.size}문항)
+          </label>
+        )}
+        {submitted && (
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -276,14 +308,16 @@ function App({ data }) {
             />
             오답만 보기 ({questions.length - totalCorrect}문항)
           </label>
+        )}
+        {submitted && (
           <button
             onClick={handleReset}
             className="ml-auto px-3 py-1 bg-slate-700 text-white rounded text-sm hover:bg-slate-800"
           >
             처음부터 다시
           </button>
-        </div>
-      )}
+        )}
+      </div>
       <div className="space-y-4">
         {visibleQuestions.map((q, idx) => (
           <QuestionCard
@@ -294,6 +328,8 @@ function App({ data }) {
             onClick={(i) => handleChoiceClick(q, i)}
             submitted={submitted}
             result={results[qKey(activeL, q)]}
+            uncertain={uncertainSet.has(qKey(activeL, q))}
+            onUncertain={() => handleUncertain(q)}
           />
         ))}
       </div>
@@ -348,7 +384,7 @@ function Header({ lectureKeys, data, activeL, onChangeL }) {
   const lKeys = lectureKeys.filter((k) => !k.startsWith("Y"));
   return (
     <header className="mb-4">
-      <h1 className="text-2xl font-bold mb-1">수의독성학 족보 퀴즈 <span className="text-xs text-slate-400 font-normal">build 2026-04-24-v3</span></h1>
+      <h1 className="text-2xl font-bold mb-1">수의독성학 족보 퀴즈 <span className="text-xs text-slate-400 font-normal">build 2026-04-24-v4</span></h1>
       <p className="mb-3 font-bold" style={{color: "#1d4ed8"}}>
         정창민 110476661159에 70달러씩 기부 바랍니다. <span className="ml-3" style={{color: "#dc2626"}}>박영찬 바보</span>
       </p>
@@ -415,34 +451,52 @@ function ProgressBar({ answered, total, submitted, totalCorrect }) {
   );
 }
 
-function QuestionCard({ q, idx, chosen, onClick, submitted, result }) {
+function QuestionCard({ q, idx, chosen, onClick, submitted, result, uncertain, onUncertain }) {
   const { prompt, choices } = useMemo(() => splitBody(q.body), [q.body]);
   const correctSet = result?.correct || new Set();
   const isCorrect = result?.isCorrect;
   const jokboSet = parseAnswer(q.jokboAnswer);
-  const answerDiffers = submitted && !setsEqual(jokboSet, correctSet) && jokboSet.size > 0;
+  const revealed = submitted || uncertain;
+  const answerDiffers = revealed && !setsEqual(jokboSet, correctSet) && jokboSet.size > 0;
 
   let borderClass = "border-slate-200";
-  if (submitted) {
+  if (uncertain && !submitted) {
+    borderClass = "border-amber-400 bg-amber-50";
+  } else if (submitted) {
     borderClass = isCorrect ? "border-emerald-500 bg-emerald-50" : "border-rose-500 bg-rose-50";
   }
 
   return (
     <div className={`border-2 ${borderClass} rounded-lg p-4 bg-white`}>
-      <div className="flex items-start justify-between mb-2">
+      <div className="flex items-start justify-between mb-2 gap-2">
         <div className="text-xs font-mono text-slate-500">
           #{idx + 1} · {q.round} · #{q.num}
           {q.qid && <span className="ml-1 text-slate-400">({q.qid})</span>}
+          {uncertain && <span className="ml-2 px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded text-[10px]">🤔 확신 없음</span>}
         </div>
-        {submitted && (
-          <span
-            className={`text-xs font-bold px-2 py-0.5 rounded ${
-              isCorrect ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"
-            }`}
-          >
-            {isCorrect ? "정답" : "오답"}
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {!submitted && (
+            <button
+              onClick={onUncertain}
+              className={`text-[11px] px-2 py-0.5 rounded border ${
+                uncertain
+                  ? "bg-amber-500 text-white border-amber-500"
+                  : "bg-white text-amber-700 border-amber-400 hover:bg-amber-50"
+              }`}
+            >
+              {uncertain ? "↩ 취소" : "🤔 확신 없어요"}
+            </button>
+          )}
+          {submitted && (
+            <span
+              className={`text-xs font-bold px-2 py-0.5 rounded ${
+                isCorrect ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"
+              }`}
+            >
+              {isCorrect ? "정답" : "오답"}
+            </span>
+          )}
+        </div>
       </div>
       <div className="mb-3 whitespace-pre-wrap text-[15px] leading-relaxed">{prompt}</div>
       <div className="space-y-1.5">
@@ -450,7 +504,7 @@ function QuestionCard({ q, idx, chosen, onClick, submitted, result }) {
           const isChosen = chosen.has(i);
           const isRight = correctSet.has(i);
           let cls = "bg-white border-slate-300 hover:bg-slate-50";
-          if (!submitted) {
+          if (!revealed) {
             if (isChosen) cls = "bg-sky-100 border-sky-500";
           } else {
             if (isRight && isChosen) cls = "bg-emerald-100 border-emerald-600";
@@ -461,7 +515,7 @@ function QuestionCard({ q, idx, chosen, onClick, submitted, result }) {
           return (
             <button
               key={i}
-              disabled={submitted}
+              disabled={revealed}
               onClick={() => onClick(i)}
               className={`choice-btn w-full text-left border rounded px-3 py-2 text-[14px] ${cls}`}
             >
@@ -470,7 +524,7 @@ function QuestionCard({ q, idx, chosen, onClick, submitted, result }) {
           );
         })}
       </div>
-      {submitted && (
+      {revealed && (
         <div className="mt-4 pt-3 border-t border-slate-200">
           <div className="flex flex-wrap gap-2 mb-2 text-xs">
             <span className="px-2 py-0.5 bg-slate-100 rounded">
@@ -484,8 +538,13 @@ function QuestionCard({ q, idx, chosen, onClick, submitted, result }) {
                 ⚠️ 족보≠Claude
               </span>
             )}
+            {uncertain && !submitted && (
+              <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded font-semibold">
+                🤔 확신 없어 조기공개 · 채점 제외
+              </span>
+            )}
           </div>
-          <details>
+          <details open={uncertain && !submitted}>
             <summary className="text-sm font-semibold text-slate-700 py-1">해설 보기</summary>
             <div className="mt-2 text-[13px] leading-relaxed text-slate-700 bg-slate-50 p-3 rounded">
               {renderExplanation(q.explanation)}
